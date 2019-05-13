@@ -35,12 +35,16 @@ void UART_puthex(uint8_t c) {
 	UART_putnibble(c & 0x0F);
 }
 
+void UART_puthex16(uint16_t n) {
+	UART_puthex(n >> 8);
+	UART_puthex(n & 0xFF);
+}
+
 void UART_putsP(const char * str, uint16_t n) {
 	while (pgm_read_byte(str) != 0) {
 		UART_put(pgm_read_byte(str++));
 	}
-	UART_puthex(n >> 8);
-	UART_puthex(n & 0xFF);
+	UART_puthex16(n);
 	UART_newline();
 }
 

@@ -44,12 +44,10 @@
 #include "integer.h"
 #include "diskio.h"
 
-//#define CRC_FLASH
-#ifndef CRC_FLASH // only if not using room for CRC code
-	#define UART_DEBUG
-	#ifdef UART_DEBUG
-		#include "uart.h"
-	#endif
+#define CRC_FLASH
+#define UART_DEBUG
+#ifdef UART_DEBUG
+	#include "uart.h"
 #endif
 
 // following very useful defines were originally in pff.c but we're not using that so...
@@ -140,6 +138,10 @@ __attribute__((naked,section(".vectors"))) void start(void) {
 
 void disk_read(uint32_t sec) {
 	// always to Buff[], always offset=0 and always len=512
+#ifdef UART_DEBUG	
+	UART_puthex16((uint16_t)sec);
+	UART_newline();
+#endif
 	disk_readp(Buff, sec, 0, 512);
 #ifdef UART_DEBUG
 	UART_dumpsector(Buff);
@@ -151,9 +153,9 @@ __attribute__((naked,section(".init3"))) int main(void) {
 	uint16_t * p16;
 	uint32_t * p32;
 	uint8_t SecPerClus;
-	uint16_t BytesPerSec, RsvdSecCnt, BPBSec, filever, flashver, firstclust;
+	uint16_t BytesPerSec, RsvdSecCnt, BPBSec, filever, flashver;
 	uint32_t FATSz;
-	uint32_t RootDir, lba;
+	uint32_t RootDir, lba, firstclust;
 	uint8_t fat_offset;
 
 	DDRD = 0xFF;
@@ -165,9 +167,6 @@ __attribute__((naked,section(".init3"))) int main(void) {
 	flashver = eeprom_read_word((const uint16_t *)E2END - 1);
 #ifdef UART_DEBUG
 	UART_init();
-#endif
-#ifdef UART_DEBUG
-	UART_putsP(PSTR("Flash#= "), flashver);
 #endif
 	res = disk_initialize();
 	if (!res) { // card init was OK so we can go on the hunt...
@@ -207,12 +206,6 @@ __attribute__((naked,section(".init3"))) int main(void) {
 		for (uint16_t i=0; i<512; i+=32) {
 			if (mem_cmpP(&Buff[i], PSTR("AVRAP"), 5) == 0) {
 				filever = ((Buff[i+5]-'0') << 8) | ((Buff[i+6]-'0') << 4) | (Buff[i+7]-'0');
-#ifdef UART_DEBUG
-				UART_puts(&Buff[i]);
-#endif
-#ifdef qUART_DEBUG
-				UART_putsP(PSTR("File#= "), filever);
-#endif
 				if ((flashver == 0xFFFF) || (flashver < filever)) { // either there's no app or it's out of date
 					// we're going for it!
 					eeprom_update_word((uint16_t *)E2END - 1, 0xFFFF);
@@ -220,7 +213,21 @@ __attribute__((naked,section(".init3"))) int main(void) {
 					// Now got to find the data cluster for this file entry we found
 					p16 = (uint16_t *)&Buff[i + DIR_FstClusLO];
 					firstclust = *p16;
-					lba = ((firstclust - fat_offset) * SecPerClus) + RootDir;
+					if (fat_offset == 2) {
+						p16 = (uint16_t *)&Buff[i + DIR_FstClusHI];
+						firstclust |=  (uint32_t)*p16 << 16;
+					}
+					//lba = ((firstclust - fat_offset) * SecPerClus) + RootDir;
+					// break that down to debug..
+#ifdef UART_DEBUG					
+					UART_puthex16((uint16_t)firstclust);
+					UART_put(' ');
+					UART_puthex(fat_offset);
+					UART_newline();
+#endif					
+					lba = firstclust - fat_offset;
+					lba *= SecPerClus;
+					lba += RootDir;
 					for (uint16_t sect=0; sect < (BOOT_ADR/512); sect++ ) {
 						uint16_t pgoffset;
 						uint16_t faddr;
