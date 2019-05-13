@@ -23,8 +23,6 @@ void xmit_spi (BYTE d);		/* Send a byte to the MMC (asmfunc.S) */
 BYTE rcv_spi (void);		/* Send a 0xFF to the MMC and get the received byte (asmfunc.S) */
 void dly_100us (void);		/* Delay 100 microseconds (asmfunc.S) */
 
-
-
 /*--------------------------------------------------------------------------
 
    Module Private Functions
@@ -49,10 +47,7 @@ void dly_100us (void);		/* Delay 100 microseconds (asmfunc.S) */
 #define CT_SD2				0x04	/* SD ver 2 */
 #define CT_BLOCK			0x08	/* Block addressing */
 
-
-static
 BYTE CardType;
-
 
 /*-----------------------------------------------------------------------*/
 /* Send a command packet to MMC                                          */
@@ -95,8 +90,6 @@ BYTE send_cmd (
 
 	return res;			/* Return with the response value */
 }
-
-
 
 
 /*--------------------------------------------------------------------------
@@ -146,8 +139,6 @@ DSTATUS disk_initialize (void)
 
 	return ty ? 0 : STA_NOINIT;
 }
-
-
 
 /*-----------------------------------------------------------------------*/
 /* Read partial sector                                                   */
