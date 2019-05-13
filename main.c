@@ -44,6 +44,8 @@
 #include "integer.h"
 #include "diskio.h"
 
+#define UART_DEBUG
+
 // following very useful defines were originally in pff.c but we're not using that so...
 #define BS_jmpBoot			0
 #define BS_OEMName			3
@@ -113,13 +115,13 @@ void UART_put(uint8_t c) {
 	UDR = c;
 }
 
-void UART_puts(uint8_t * str) {
+void UART_puts(const char * str) {
 	while (*str) {
 		UART_put(*str++);
 	}
 }
 
-void UART_putsP(uint8_t * str) {
+void UART_putsP(const char * str) {
 	while (pgm_read_byte(str) != 0) {
 		UART_put(pgm_read_byte(str++));
 	}
@@ -149,19 +151,15 @@ int mem_cmpP(const void* dst, const void* src, int cnt) {
 }
 
 
-__attribute__((naked,section(".vectors"))) void start(void) {
-	asm("rjmp main");
-}
-
-__attribute__((naked, section(".init3"))) int main (void)
-{
+__attribute__((naked,section(".vectors"))) void main(void) {
 	DWORD fa;	/* Flash address */
 	WORD br;	/* Bytes read */
 	DSTATUS res;
 	uint16_t * p16;
 	uint32_t * p32;
-	uint16_t BytesPerSec, RsvdSecCnt, BPBSec, FATSz16;
-	uint32_t RootDir;
+	uint8_t SecPerClus;
+	uint16_t BytesPerSec, RsvdSecCnt, BPBSec, FATSz16, progver, currver, firstclust;
+	uint32_t RootDir, lba;
 
 	DDRD = 0xFF;
 	myR1 = 0;
@@ -174,50 +172,75 @@ __attribute__((naked, section(".init3"))) int main (void)
 	UART_putsP(PSTR("hello\r\n"));
 #endif
 	res = disk_initialize();
-	BPBSec = 0;
-	res = disk_readp(Buff, BPBSec, 0, 512 ); // first sector is either an MBR or a boot sector.
-	// Offset 11,12 in BS/BPB is BPB_BytesPerSec and will be 512 (if BPB not MBR)
-	p16 = (uint16_t *)&Buff[BPB_BytsPerSec];
-	BytesPerSec = *p16;
-	if (BytesPerSec != (uint16_t)512) {
-		// We almost certainly have an MBR so need to get "sectors preceding partition 1" at offset 0x1C6
-		p32 = (uint32_t *)&Buff[MBR_Table + 8];
-		// then read the BS/BPB
-		BPBSec = *p32;
-		disk_readp(Buff, BPBSec, 0, 512 );
-	}
-	// With any luck we're here with a BS/BPB in the buffer
-#ifdef UART_DEBUG
-	UART_puts(&Buff[BS_FilSysType32]); // print "FAT12"/"FAT16"
-#endif
-	// Fatgen103: FirstRootDirSecNum = BPB_ResvdSecCnt + (BPB_NumFATs * BPB_FATSz16);
-	p16 = (uint16_t *)&Buff[BPB_RsvdSecCnt];
-	RsvdSecCnt = *p16;
-	p16 = (uint16_t *)&Buff[BPB_FATSz16];
-	FATSz16 = *p16;
-	RootDir = BPBSec + RsvdSecCnt + (Buff[BPB_NumFATs] * FATSz16);
-	// ready to read the root directory sector
-	disk_readp(Buff, RootDir, 0, 512 );
-#if UART_DEBUG
-	for (uint16_t i=0; i<512; i++) {
-		if ((i % 16) == 0) {
-			UART_put('\r');
-			UART_put('\n');
+	if (!res) { // card init was OK so we can go on the hunt...
+		BPBSec = 0;
+		res = disk_readp(Buff, BPBSec, 0, 512 ); // first sector is either an MBR or a boot sector.
+		// Offset 11,12 in BS/BPB is BPB_BytesPerSec and will be 512 (if BPB not MBR)
+		p16 = (uint16_t *)&Buff[BPB_BytsPerSec];
+		BytesPerSec = *p16;
+		if (BytesPerSec != (uint16_t)512) {
+			// We almost certainly have an MBR so need to get "sectors preceding partition 1" at offset 0x1C6
+			p32 = (uint32_t *)&Buff[MBR_Table + 8];
+			// then read the BS/BPB
+			BPBSec = *p32;
+			disk_readp(Buff, BPBSec, 0, 512 );
 		}
-		UART_puthex(Buff[i]);
-		UART_put(' ');
-	}
-#endif
-	for (uint16_t i=0; i<512; i+=32) {
-		if (mem_cmpP(&Buff[i],PSTR("FILES"),5) == 0) {
+		// With any luck we're here with a BS/BPB in the buffer
 #ifdef UART_DEBUG
-			UART_putsP(PSTR("Found"));
+		UART_puts((const char *)&Buff[BS_FilSysType]); // print "FAT12"/"FAT16"
 #endif
-			break;
-		}
-	}
+		// Fatgen103: FirstRootDirSecNum = BPB_ResvdSecCnt + (BPB_NumFATs * BPB_FATSz16);
+		p16 = (uint16_t *)&Buff[BPB_RsvdSecCnt];
+		RsvdSecCnt = *p16;
+		p16 = (uint16_t *)&Buff[BPB_FATSz16];
+		FATSz16 = *p16;
+		RootDir = BPBSec + RsvdSecCnt + (Buff[BPB_NumFATs] * FATSz16);
+		SecPerClus = Buff[BPB_SecPerClus];
+		// ready to read the root directory sector
+		disk_readp(Buff, RootDir, 0, 512 );
+		// scan the root dir for "AVRAPnnn", entries are 32 bytes each
+		for (uint16_t i=0; i<512; i+=32) {
+			if (mem_cmpP(&Buff[i],PSTR("AVRAP"),5) == 0) {
+				progver = ((Buff[i+5]-'0') << 8) | ((Buff[i+6]-'0') << 4) | (Buff[i+7]-'0');
+#ifdef UART_DEBUG
+				UART_putsP(PSTR("Ver = "));
+				UART_puthex(progver >> 8);
+				UART_puthex(progver & 0xFF);
+#endif
+				currver = pgm_read_word(BOOT_ADR - (10 * SPM_PAGESIZE));
+				if ((currver == 0xFFFF) || (currver < progver)) { // either there's no app or it's out of date
+					// we're going for it!
+					flash_erase(BOOT_ADR - (10 * SPM_PAGESIZE)); // erase the valid marker app (which is the ver number)
 
-	if (pgm_read_word(0) != 0xFFFF)		/* Start application if exist */
+					// Now got to find the data cluster for this file entry we found
+					p16 = (uint16_t *)&Buff[i + DIR_FstClusLO];
+					firstclust = *p16;
+					lba = ((firstclust - 1) * SecPerClus) + RootDir;
+					for (fa = 0; fa < (BOOT_ADR - (11 * SPM_PAGESIZE)); fa += SPM_PAGESIZE) {
+						disk_readp(Buff, lba + fa, 0, SPM_PAGESIZE);
+						flash_erase(fa);
+						flash_write(fa, Buff);
+					}						
+#ifdef qUART_DEBUG
+					for (uint16_t i=0; i<512; i++) {
+						if ((i % 16) == 0) {
+							UART_put('\r');
+							UART_put('\n');
+						}
+						UART_puthex(Buff[i]);
+						UART_put(' ');
+					}
+#endif
+					Buff[0] = progver & 0xFF;
+					Buff[1] = progver >> 8;
+					flash_write(BOOT_ADR - (10 * SPM_PAGESIZE), Buff); // write the new version number as validity marker
+					break;
+				}
+			}
+		}
+	}	
+
+	if (pgm_read_word(BOOT_ADR - (10 * SPM_PAGESIZE)) != 0xFFFF)		/* Start application if exists */
 		((void(*)(void))0)();
 
 	while(1) {

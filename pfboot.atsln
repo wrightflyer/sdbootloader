@@ -3,6 +3,8 @@ Microsoft Visual Studio Solution File, Format Version 11.00
 # Atmel Studio Solution File, Format Version 11.00
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "pfboot", "pfboot.cproj", "{F1F5862B-51BB-47DE-839F-8CFED2E4F74D}"
 EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "avrapp", "avrapp\avrapp.cproj", "{5ECAE1D2-FE2D-4630-A728-5C1EBA6BB597}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|AVR = Debug|AVR
@@ -13,6 +15,10 @@ Global
 		{F1F5862B-51BB-47DE-839F-8CFED2E4F74D}.Debug|AVR.Build.0 = Debug|AVR
 		{F1F5862B-51BB-47DE-839F-8CFED2E4F74D}.Release|AVR.ActiveCfg = Release|AVR
 		{F1F5862B-51BB-47DE-839F-8CFED2E4F74D}.Release|AVR.Build.0 = Release|AVR
+		{5ECAE1D2-FE2D-4630-A728-5C1EBA6BB597}.Debug|AVR.ActiveCfg = Debug|AVR
+		{5ECAE1D2-FE2D-4630-A728-5C1EBA6BB597}.Debug|AVR.Build.0 = Debug|AVR
+		{5ECAE1D2-FE2D-4630-A728-5C1EBA6BB597}.Release|AVR.ActiveCfg = Release|AVR
+		{5ECAE1D2-FE2D-4630-A728-5C1EBA6BB597}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
