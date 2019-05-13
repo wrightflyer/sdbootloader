@@ -13,7 +13,7 @@
 int main(void)
 {
 	UART_init();
-	UART_putsP(PSTR("App at 0\r\n"));
+	UART_putsP(PSTR("App at "), 0);
 	DDRD = 0xFF;
 	PORTD = 0x55;
     while(1)
