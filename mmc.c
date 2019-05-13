@@ -10,7 +10,7 @@
 / * Redistributions of source code must retain the above copyright notice.
 /
 /------------------------------------------------------------------------/
-/* Dec 6, 2010  First release
+/ * Dec 6, 2010  First release
 */
 
 //#include "pff.h"
