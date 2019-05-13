@@ -46,6 +46,7 @@
 #include "diskio.h"
 
 #define CRC_FLASH
+#define FAT32_SUPPORT
 #define CLUSTER_SUPPORT
 #define UART_DEBUG
 #ifdef UART_DEBUG
@@ -215,11 +216,13 @@ __attribute__((section(".init3"))) int main(void) {
 		// adding FAT32 support here
 		// If FATSz == 0 then we're looking at FAT32
 		fat_offset = 1;
+#ifdef FAT32_SUPPORT
 		if (FATSz == 0) {
 			p32 = (uint32_t *)&Buff[BPB_FATSz32];
 			FATSz = *p32;
 			fat_offset = 2;
 		}
+#endif
 		
 		RootDir = BPBSec + RsvdSecCnt + (Buff[BPB_NumFATs] * FATSz);
 		SecPerClus = Buff[BPB_SecPerClus];
@@ -236,12 +239,12 @@ __attribute__((section(".init3"))) int main(void) {
 					// Now got to find the data cluster for this file entry we found
 					p16 = (uint16_t *)&Buff[i + DIR_FstClusLO];
 					firstclust = *p16;
+#ifdef FAT32_SUPPORT
 					if (fat_offset == 2) {
 						p16 = (uint16_t *)&Buff[i + DIR_FstClusHI];
 						firstclust |=  (uint32_t)*p16 << 16;
 					}
-					//lba = ((firstclust - fat_offset) * SecPerClus) + RootDir;
-					// break that down to debug..
+#endif					
 					lba = firstclust - fat_offset;
 					lba *= SecPerClus;
 					lba += RootDir;
@@ -269,22 +272,41 @@ __attribute__((section(".init3"))) int main(void) {
 							// used all the sectors in a cluster so time to go hunting
 							ldiv_t fat_pos;
 							fat_pos = ldiv(thisclust, (fat_offset ==1) ? 256 : 128);
+#ifdef UART_DEBUG
 							UART_puthex16((uint16_t)fat_pos.quot);
 							UART_put(' ');
 							UART_puthex16((uint16_t)fat_pos.rem);
+#endif							
 							fat_pos.quot += BPBSec + RsvdSecCnt;
 							disk_read(fat_pos.quot); // get the FAT sector that 'thisclust' is contained in 
-							p16 = (uint16_t *)&Buff[fat_pos.rem * 2];
-							lba = *p16;
-							lba -= fat_offset;
+#ifdef FAT32_SUPPORT
+							if (fat_offset == 1) {
+#endif								
+								p16 = (uint16_t *)&Buff[fat_pos.rem * 2];
+								lba = *p16;			// get cluster number of new cluster
+#ifdef FAT32_SUPPORT
+							}
+							else {
+								p32 = (uint32_t *)&Buff[fat_pos.rem * 4];
+								lba = *p32;			// get cluster number of new cluster
+							}
+#endif							
+							// !! what if we just got an end of chain marker instead of a cluster number??
+							thisclust = lba;	// and remember in case we do this again
+							lba -= fat_offset;	// the, as before, convert to a base LBA for the cluster
 							lba *= SecPerClus;
 							lba += RootDir;
+							sec_count = SecPerClus;
 						}
 #endif						
 					}
+#ifdef CRC_FLASH					
 					if (crc_app_ok()) {
+#endif						
 						eeprom_update_word((uint16_t *)E2END - 1, filever);
-					}						
+#ifdef CRC_FLASH
+					}
+#endif
 					break;
 				}
 			}
