@@ -36,7 +36,6 @@
 /
 /-------------------------------------------------------------------------*/
 
-
 #include <avr/io.h>
 #include <avr/pgmspace.h>
 #include <avr/eeprom.h>
@@ -49,6 +48,7 @@
 #ifdef UART_DEBUG
 	#include "uart.h"
 #endif
+#define CRC_FLASH
 
 // following very useful defines were originally in pff.c but we're not using that so...
 #define BS_jmpBoot			0
@@ -98,12 +98,31 @@
 #define	DIR_FstClusLO		26
 #define	DIR_FileSize		28
 
+typedef void (*f_ptr)(void);
 
 void flash_erase (DWORD);				/* Erase a flash page (asmfunc.S) */
 void flash_write (DWORD, const BYTE*);	/* Program a flash page (asmfunc.S) */
 
 BYTE Buff[512];	/* sector buffer */
 register uint8_t myR1 asm("r1"); // just doing this so I can do the normal CRT stuff (R1=0, SREG=R1)
+
+#ifdef CRC_FLASH
+	static uint16_t updcrc(uint8_t c, uint16_t crc)
+	{
+		uint8_t flag;
+		for (uint8_t i = 0; i < 8; ++i)
+		{
+			flag = !!(crc & 0x8000);
+			crc <<= 1;
+			if (c & 0x80)
+				crc |= 1;
+			if (flag)
+				crc ^= 0x1021;
+			c <<= 1;
+		}
+		return crc;
+	}
+#endif
 
 static inline
 int mem_cmpP(const void* dst, const void* src, int cnt) {
@@ -113,8 +132,11 @@ int mem_cmpP(const void* dst, const void* src, int cnt) {
 	return r;
 }
 
+__attribute__((naked,section(".vectors"))) void start(void) {
+	asm("rjmp main");
+}	
 
-__attribute__((naked,section(".vectors"))) int main(void) {
+__attribute__((naked,section(".init3"))) int main(void) {
 	DSTATUS res;
 	uint16_t * p16;
 	uint32_t * p32;
@@ -128,7 +150,7 @@ __attribute__((naked,section(".vectors"))) int main(void) {
 	SPH = RAMEND >> 8;
 	SPL = RAMEND & 0xFF;
 
-	currver = eeprom_read_word((const uint16_t *)E2END - 2);
+	currver = eeprom_read_word((const uint16_t *)E2END - 1);
 #ifdef UART_DEBUG
 	UART_init();
 	UART_putsP(PSTR("FlashVer = "));
@@ -170,7 +192,7 @@ __attribute__((naked,section(".vectors"))) int main(void) {
 #endif
 		// scan the root dir for "AVRAPnnn", entries are 32 bytes each
 		for (uint16_t i=0; i<512; i+=32) {
-			if (mem_cmpP(&Buff[i],PSTR("AVRAP"),5) == 0) {
+			if (mem_cmpP(&Buff[i], PSTR("AVRAP"), 5) == 0) {
 				progver = ((Buff[i+5]-'0') << 8) | ((Buff[i+6]-'0') << 4) | (Buff[i+7]-'0');
 #ifdef UART_DEBUG
 				UART_putsP(PSTR("FileVer = "));
@@ -180,7 +202,7 @@ __attribute__((naked,section(".vectors"))) int main(void) {
 #endif
 				if ((currver == 0xFFFF) || (currver < progver)) { // either there's no app or it's out of date
 					// we're going for it!
-					eeprom_update_word((uint16_t *)E2END-2, 0xFFFF);
+					eeprom_update_word((uint16_t *)E2END - 1, 0xFFFF);
 
 					// Now got to find the data cluster for this file entry we found
 					p16 = (uint16_t *)&Buff[i + DIR_FstClusLO];
@@ -197,19 +219,45 @@ __attribute__((naked,section(".vectors"))) int main(void) {
 							flash_write(faddr + pgoffset, &Buff[pgoffset]);
 						}						
 					}						
-					eeprom_update_word((uint16_t *)E2END-2, progver);
+					eeprom_update_word((uint16_t *)E2END - 1, progver);
 					break;
 				}
 			}
 		}
 	}	
 
-	if (eeprom_read_word((const uint16_t *)E2END-2) != 0xFFFF)		/* Start application if exists */
-		((void(*)(void))0)();
+#ifdef CRC_FLASH
+	uint16_t crc = 0xFFFF;
+	for (uint16_t i=0; i < CODE_LEN; i++) {
+		crc = updcrc(pgm_read_byte(i), crc);
+	}
+	// augment
+	crc = updcrc(0, updcrc(0, crc));
+#endif
+	
+#ifdef UART_DEBUG
+	UART_putsP(PSTR("App CRC = "));
+	UART_puthex(crc >> 8);
+	UART_puthex(crc & 0xFF);
+	UART_newline();
+	UART_putsP(PSTR("Flash CRC = "));
+	UART_puthex(pgm_read_word(CODE_LEN) >> 8);
+	UART_puthex(pgm_read_word(CODE_LEN) & 0xFF);
+	UART_newline();
+#endif
+	if ((eeprom_read_word((const uint16_t *)E2END - 1) != 0xFFFF) &&		/* Start application if exists */
+#ifdef CRC_FLASH	
+		(pgm_read_word(CODE_LEN) == crc)) {
+#else
+		(pgm_read_word(0) == (uint16_t)0xFFFF)) {
+#endif
+		f_ptr reset = (f_ptr)0;
+		reset();
+	}		
 
 	while(1) {
 		PORTD ^=0xFF;
-		_delay_ms(100);
+		_delay_ms(250);
 	}
 }
 

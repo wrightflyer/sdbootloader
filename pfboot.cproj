@@ -129,6 +129,7 @@
     <ListValues>
       <Value>BOOT_ADR=0x3800</Value>
       <Value>F_CPU=3686400UL</Value>
+      <Value>CODE_LEN=BOOT_ADR-2</Value>
     </ListValues>
   </avrgcc.compiler.symbols.DefSymbols>
   <avrgcc.compiler.directories.IncludePaths>

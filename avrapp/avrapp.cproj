@@ -69,8 +69,8 @@
   <avrgcc.assembler.debugging.DebugLevel>Default (-Wa,-g)</avrgcc.assembler.debugging.DebugLevel>
 </AvrGcc>
     </ToolchainSettings>
-    <PostBuildEvent>avr-objcopy -I ihex -O binary   $(MSBuildProjectDirectory)\$(Configuration)\$(OutputFileName).hex  $(MSBuildProjectDirectory)\$(Configuration)\$(OutputFileName).bin
-</PostBuildEvent>
+    <PostBuildEvent>rem avr-objcopy -I ihex -O binary   $(MSBuildProjectDirectory)\$(Configuration)\$(OutputFileName).hex  $(MSBuildProjectDirectory)\$(Configuration)\$(OutputFileName).bin
+srec_cat $(MSBuildProjectDirectory)\$(Configuration)\$(OutputFileName).hex -intel -fill 0xFF 0x0000 0x37FE --l-e-crc16 0x37FE -o foo.bin -binary</PostBuildEvent>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\uart\uart.c">
