@@ -2,7 +2,7 @@
 
 void UART_init(void) {
 	UCSRB = (1 << TXEN);
-	UBRRL = 23; // 9600 @ 3.6864MHz
+	UBRRL = 5; // 38400 @ 3.6864MHz
 }
 
 void UART_put(uint8_t c) {
@@ -16,10 +16,9 @@ void UART_puts(const char * str) {
 	}
 }
 
-void UART_putsP(const char * str) {
-	while (pgm_read_byte(str) != 0) {
-		UART_put(pgm_read_byte(str++));
-	}
+void UART_newline(void){
+	UART_put('\r');
+	UART_put('\n');
 }
 
 void UART_putnibble(uint8_t c) {
@@ -36,9 +35,13 @@ void UART_puthex(uint8_t c) {
 	UART_putnibble(c & 0x0F);
 }
 
-void UART_newline(void){
-	UART_put('\r');
-	UART_put('\n');
+void UART_putsP(const char * str, uint16_t n) {
+	while (pgm_read_byte(str) != 0) {
+		UART_put(pgm_read_byte(str++));
+	}
+	UART_puthex(n >> 8);
+	UART_puthex(n & 0xFF);
+	UART_newline();
 }
 
 void UART_dumpsector(uint8_t * Buff) {

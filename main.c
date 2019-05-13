@@ -15,7 +15,7 @@
 / This is a stand-alone MMC/SD boot loader for megaAVRs. It requires a 4KB
 / boot section for code, four GPIO pins for MMC/SD as shown in sch.jpg and
 / nothing else. To port the boot loader into your project, follow the
-/ instruction sdescribed below. 
+/ instruction sdescribed below.
 /
 / 1. Setup the hardware. Attach a memory card socket to the any GPIO port
 /    where you like. Select boot size at least 4KB for the boot loader with
@@ -44,11 +44,13 @@
 #include "integer.h"
 #include "diskio.h"
 
-//#define UART_DEBUG
-#ifdef UART_DEBUG
-	#include "uart.h"
+//#define CRC_FLASH
+#ifndef CRC_FLASH // only if not using room for CRC code
+	#define UART_DEBUG
+	#ifdef UART_DEBUG
+		#include "uart.h"
+	#endif
 #endif
-#define CRC_FLASH
 
 // following very useful defines were originally in pff.c but we're not using that so...
 #define BS_jmpBoot			0
@@ -136,13 +138,23 @@ __attribute__((naked,section(".vectors"))) void start(void) {
 	asm("rjmp main");
 }	
 
+void disk_read(uint32_t sec) {
+	// always to Buff[], always offset=0 and always len=512
+	disk_readp(Buff, sec, 0, 512);
+#ifdef UART_DEBUG
+	UART_dumpsector(Buff);
+#endif
+}
+
 __attribute__((naked,section(".init3"))) int main(void) {
 	DSTATUS res;
 	uint16_t * p16;
 	uint32_t * p32;
 	uint8_t SecPerClus;
-	uint16_t BytesPerSec, RsvdSecCnt, BPBSec, FATSz16, progver, currver, firstclust;
+	uint16_t BytesPerSec, RsvdSecCnt, BPBSec, filever, flashver, firstclust;
+	uint32_t FATSz;
 	uint32_t RootDir, lba;
+	uint8_t fat_offset;
 
 	DDRD = 0xFF;
 	myR1 = 0;
@@ -150,18 +162,17 @@ __attribute__((naked,section(".init3"))) int main(void) {
 	SPH = RAMEND >> 8;
 	SPL = RAMEND & 0xFF;
 
-	currver = eeprom_read_word((const uint16_t *)E2END - 1);
+	flashver = eeprom_read_word((const uint16_t *)E2END - 1);
 #ifdef UART_DEBUG
 	UART_init();
-	UART_putsP(PSTR("FlashVer = "));
-	UART_puthex(currver >> 8);
-	UART_puthex(currver & 0xFF);
-	UART_newline();
+#endif
+#ifdef UART_DEBUG
+	UART_putsP(PSTR("Flash#= "), flashver);
 #endif
 	res = disk_initialize();
 	if (!res) { // card init was OK so we can go on the hunt...
 		BPBSec = 0;
-		res = disk_readp(Buff, BPBSec, 0, 512 ); // first sector is either an MBR or a boot sector.
+		disk_read(BPBSec); // first sector is either an MBR or a boot sector.
 		// Offset 11,12 in BS/BPB is BPB_BytesPerSec and will be 512 (if BPB not MBR)
 		p16 = (uint16_t *)&Buff[BPB_BytsPerSec];
 		BytesPerSec = *p16;
@@ -170,48 +181,50 @@ __attribute__((naked,section(".init3"))) int main(void) {
 			p32 = (uint32_t *)&Buff[MBR_Table + 8];
 			// then read the BS/BPB
 			BPBSec = *p32;
-			disk_readp(Buff, BPBSec, 0, 512 );
+			disk_read(BPBSec);
 		}
 		// With any luck we're here with a BS/BPB in the buffer
-#ifdef UART_DEBUG
-		UART_putsP(PSTR("BPB:\r\n"));
-		UART_dumpsector(Buff);
-#endif
 		// Fatgen103: FirstRootDirSecNum = BPB_ResvdSecCnt + (BPB_NumFATs * BPB_FATSz16);
 		p16 = (uint16_t *)&Buff[BPB_RsvdSecCnt];
 		RsvdSecCnt = *p16;
 		p16 = (uint16_t *)&Buff[BPB_FATSz16];
-		FATSz16 = *p16;
-		RootDir = BPBSec + RsvdSecCnt + (Buff[BPB_NumFATs] * FATSz16);
+		FATSz = *p16;
+		
+		// adding FAT32 support here
+		// If FATSz == 0 then we're looking at FAT32
+		fat_offset = 1;
+		if (FATSz == 0) {
+			p32 = (uint32_t *)&Buff[BPB_FATSz32];
+			FATSz = *p32;
+			fat_offset = 2;
+		}
+		
+		RootDir = BPBSec + RsvdSecCnt + (Buff[BPB_NumFATs] * FATSz);
 		SecPerClus = Buff[BPB_SecPerClus];
 		// ready to read the root directory sector
-		disk_readp(Buff, RootDir, 0, 512 );
-#ifdef UART_DEBUG
-		UART_putsP(PSTR("Root:\r\n"));
-		UART_dumpsector(Buff);
-#endif
+		disk_read(RootDir);
 		// scan the root dir for "AVRAPnnn", entries are 32 bytes each
 		for (uint16_t i=0; i<512; i+=32) {
 			if (mem_cmpP(&Buff[i], PSTR("AVRAP"), 5) == 0) {
-				progver = ((Buff[i+5]-'0') << 8) | ((Buff[i+6]-'0') << 4) | (Buff[i+7]-'0');
+				filever = ((Buff[i+5]-'0') << 8) | ((Buff[i+6]-'0') << 4) | (Buff[i+7]-'0');
 #ifdef UART_DEBUG
-				UART_putsP(PSTR("FileVer = "));
-				UART_puthex(progver >> 8);
-				UART_puthex(progver & 0xFF);
-				UART_newline();
+				UART_puts(&Buff[i]);
 #endif
-				if ((currver == 0xFFFF) || (currver < progver)) { // either there's no app or it's out of date
+#ifdef qUART_DEBUG
+				UART_putsP(PSTR("File#= "), filever);
+#endif
+				if ((flashver == 0xFFFF) || (flashver < filever)) { // either there's no app or it's out of date
 					// we're going for it!
 					eeprom_update_word((uint16_t *)E2END - 1, 0xFFFF);
 
 					// Now got to find the data cluster for this file entry we found
 					p16 = (uint16_t *)&Buff[i + DIR_FstClusLO];
 					firstclust = *p16;
-					lba = ((firstclust - 1) * SecPerClus) + RootDir;
+					lba = ((firstclust - fat_offset) * SecPerClus) + RootDir;
 					for (uint16_t sect=0; sect < (BOOT_ADR/512); sect++ ) {
 						uint16_t pgoffset;
 						uint16_t faddr;
-						disk_readp(Buff, lba + sect, 0, 512);
+						disk_read(lba + sect);
 						faddr = sect * 512;
 						for (uint8_t page = 0; page < 512 / SPM_PAGESIZE; page++) {
 							pgoffset = page * SPM_PAGESIZE;
@@ -219,7 +232,7 @@ __attribute__((naked,section(".init3"))) int main(void) {
 							flash_write(faddr + pgoffset, &Buff[pgoffset]);
 						}						
 					}						
-					eeprom_update_word((uint16_t *)E2END - 1, progver);
+					eeprom_update_word((uint16_t *)E2END - 1, filever);
 					break;
 				}
 			}
@@ -233,23 +246,17 @@ __attribute__((naked,section(".init3"))) int main(void) {
 	}
 	// augment
 	crc = updcrc(0, updcrc(0, crc));
+#ifdef UART_DEBUG
+	UART_putsP(PSTR("App CRC = "), crc);
+	UART_putsP(PSTR("Flash CRC = "), pgm_read_word(CODE_LEN));
+#endif
 #endif
 	
-#ifdef UART_DEBUG
-	UART_putsP(PSTR("App CRC = "));
-	UART_puthex(crc >> 8);
-	UART_puthex(crc & 0xFF);
-	UART_newline();
-	UART_putsP(PSTR("Flash CRC = "));
-	UART_puthex(pgm_read_word(CODE_LEN) >> 8);
-	UART_puthex(pgm_read_word(CODE_LEN) & 0xFF);
-	UART_newline();
-#endif
 	if ((eeprom_read_word((const uint16_t *)E2END - 1) != 0xFFFF) &&		/* Start application if exists */
 #ifdef CRC_FLASH	
 		(pgm_read_word(CODE_LEN) == crc)) {
 #else
-		(pgm_read_word(0) == (uint16_t)0xFFFF)) {
+		(pgm_read_word(0) != (uint16_t)0xFFFF)) {
 #endif
 		f_ptr reset = (f_ptr)0;
 		reset();
@@ -261,3 +268,5 @@ __attribute__((naked,section(".init3"))) int main(void) {
 	}
 }
 
+void __do_copy_data(void) {}
+void __do_clear_bss(void) {}
