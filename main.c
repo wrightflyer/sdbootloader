@@ -45,7 +45,7 @@
 #include "diskio.h"
 
 #define CRC_FLASH
-#define UART_DEBUG
+//#define UART_DEBUG
 #ifdef UART_DEBUG
 	#include "uart.h"
 #endif
@@ -107,21 +107,36 @@ BYTE Buff[512];	/* sector buffer */
 register uint8_t myR1 asm("r1"); // just doing this so I can do the normal CRT stuff (R1=0, SREG=R1)
 
 #ifdef CRC_FLASH
-	static uint16_t updcrc(uint8_t c, uint16_t crc)
+static uint16_t updcrc(uint8_t c, uint16_t crc)
+{
+	uint8_t flag;
+	for (uint8_t i = 0; i < 8; ++i)
 	{
-		uint8_t flag;
-		for (uint8_t i = 0; i < 8; ++i)
-		{
-			flag = !!(crc & 0x8000);
-			crc <<= 1;
-			if (c & 0x80)
-				crc |= 1;
-			if (flag)
-				crc ^= 0x1021;
-			c <<= 1;
-		}
-		return crc;
+		flag = !!(crc & 0x8000);
+		crc <<= 1;
+		if (c & 0x80)
+			crc |= 1;
+		if (flag)
+			crc ^= 0x1021;
+		c <<= 1;
 	}
+	return crc;
+}
+
+uint8_t crc_app_ok(void) {
+	uint16_t crc = 0xFFFF;
+	for (uint16_t i=0; i < CODE_LEN; i++) {
+		crc = updcrc(pgm_read_byte(i), crc);
+	}
+	// augment
+	crc = updcrc(0, updcrc(0, crc));
+#ifdef UART_DEBUG
+	UART_putsP(PSTR("App CRC= "), crc);
+	UART_putsP(PSTR("Flash CRC= "), pgm_read_word(CODE_LEN));
+#endif
+	return (pgm_read_word(CODE_LEN) == crc); 
+}
+
 #endif
 
 static inline
@@ -148,7 +163,7 @@ void disk_read(uint32_t sec) {
 #endif
 }
 
-__attribute__((naked,section(".init3"))) int main(void) {
+__attribute__((section(".init3"))) int main(void) {
 	DSTATUS res;
 	uint16_t * p16;
 	uint32_t * p32;
@@ -164,6 +179,9 @@ __attribute__((naked,section(".init3"))) int main(void) {
 	SPH = RAMEND >> 8;
 	SPL = RAMEND & 0xFF;
 
+	for (uint16_t i=0x60; i<RAMEND; i++) {
+		*(uint8_t *)i = 0x55;
+	}
 	flashver = eeprom_read_word((const uint16_t *)E2END - 1);
 #ifdef UART_DEBUG
 	UART_init();
@@ -237,31 +255,21 @@ __attribute__((naked,section(".init3"))) int main(void) {
 							pgoffset = page * SPM_PAGESIZE;
 							flash_erase(faddr + pgoffset);
 							flash_write(faddr + pgoffset, &Buff[pgoffset]);
-						}						
+						}
+					}
+					if (crc_app_ok()) {
+						eeprom_update_word((uint16_t *)E2END - 1, filever);
 					}						
-					eeprom_update_word((uint16_t *)E2END - 1, filever);
 					break;
 				}
 			}
 		}
 	}	
 
-#ifdef CRC_FLASH
-	uint16_t crc = 0xFFFF;
-	for (uint16_t i=0; i < CODE_LEN; i++) {
-		crc = updcrc(pgm_read_byte(i), crc);
-	}
-	// augment
-	crc = updcrc(0, updcrc(0, crc));
-#ifdef UART_DEBUG
-	UART_putsP(PSTR("App CRC = "), crc);
-	UART_putsP(PSTR("Flash CRC = "), pgm_read_word(CODE_LEN));
-#endif
-#endif
 	
 	if ((eeprom_read_word((const uint16_t *)E2END - 1) != 0xFFFF) &&		/* Start application if exists */
 #ifdef CRC_FLASH	
-		(pgm_read_word(CODE_LEN) == crc)) {
+		(crc_app_ok())) {
 #else
 		(pgm_read_word(0) != (uint16_t)0xFFFF)) {
 #endif
