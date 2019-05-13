@@ -39,12 +39,16 @@
 
 #include <avr/io.h>
 #include <avr/pgmspace.h>
+#include <avr/eeprom.h>
 #include <util/delay.h>
 #include <string.h>
 #include "integer.h"
 #include "diskio.h"
 
-#define UART_DEBUG
+//#define UART_DEBUG
+#ifdef UART_DEBUG
+	#include "uart.h"
+#endif
 
 // following very useful defines were originally in pff.c but we're not using that so...
 #define BS_jmpBoot			0
@@ -98,49 +102,8 @@
 void flash_erase (DWORD);				/* Erase a flash page (asmfunc.S) */
 void flash_write (DWORD, const BYTE*);	/* Program a flash page (asmfunc.S) */
 
-extern BYTE CardType;
-
-//FATFS Fatfs;				/* Petit-FatFs work area */
-BYTE Buff[/*SPM_PAGESIZE*/512];	/* Page data buffer */
-register uint8_t myR1 asm("r1"); 
-
-#ifdef UART_DEBUG
-void UART_init(void) {
-	UCSRB = (1 << TXEN);
-	UBRRL = 23; // 9600 @ 3.6864MHz
-}
-
-void UART_put(uint8_t c) {
-	while (!(UCSRA & (1 << UDRE)));
-	UDR = c;
-}
-
-void UART_puts(const char * str) {
-	while (*str) {
-		UART_put(*str++);
-	}
-}
-
-void UART_putsP(const char * str) {
-	while (pgm_read_byte(str) != 0) {
-		UART_put(pgm_read_byte(str++));
-	}
-}
-
-void UART_putnibble(uint8_t c) {
-	if (c < 10) {
-		UART_put('0' + c);
-	}
-	else {
-		UART_put('A' + c - 10);
-	}
-}
-
-void UART_puthex(uint8_t c) {
-	UART_putnibble(c >> 4);
-	UART_putnibble(c & 0x0F);
-}
-#endif
+BYTE Buff[512];	/* sector buffer */
+register uint8_t myR1 asm("r1"); // just doing this so I can do the normal CRT stuff (R1=0, SREG=R1)
 
 static inline
 int mem_cmpP(const void* dst, const void* src, int cnt) {
@@ -151,9 +114,7 @@ int mem_cmpP(const void* dst, const void* src, int cnt) {
 }
 
 
-__attribute__((naked,section(".vectors"))) void main(void) {
-	DWORD fa;	/* Flash address */
-	WORD br;	/* Bytes read */
+__attribute__((naked,section(".vectors"))) int main(void) {
 	DSTATUS res;
 	uint16_t * p16;
 	uint32_t * p32;
@@ -167,9 +128,13 @@ __attribute__((naked,section(".vectors"))) void main(void) {
 	SPH = RAMEND >> 8;
 	SPL = RAMEND & 0xFF;
 
+	currver = eeprom_read_word((const uint16_t *)E2END - 2);
 #ifdef UART_DEBUG
 	UART_init();
-	UART_putsP(PSTR("hello\r\n"));
+	UART_putsP(PSTR("FlashVer = "));
+	UART_puthex(currver >> 8);
+	UART_puthex(currver & 0xFF);
+	UART_newline();
 #endif
 	res = disk_initialize();
 	if (!res) { // card init was OK so we can go on the hunt...
@@ -187,7 +152,8 @@ __attribute__((naked,section(".vectors"))) void main(void) {
 		}
 		// With any luck we're here with a BS/BPB in the buffer
 #ifdef UART_DEBUG
-		UART_puts((const char *)&Buff[BS_FilSysType]); // print "FAT12"/"FAT16"
+		UART_putsP(PSTR("BPB:\r\n"));
+		UART_dumpsector(Buff);
 #endif
 		// Fatgen103: FirstRootDirSecNum = BPB_ResvdSecCnt + (BPB_NumFATs * BPB_FATSz16);
 		p16 = (uint16_t *)&Buff[BPB_RsvdSecCnt];
@@ -198,49 +164,47 @@ __attribute__((naked,section(".vectors"))) void main(void) {
 		SecPerClus = Buff[BPB_SecPerClus];
 		// ready to read the root directory sector
 		disk_readp(Buff, RootDir, 0, 512 );
+#ifdef UART_DEBUG
+		UART_putsP(PSTR("Root:\r\n"));
+		UART_dumpsector(Buff);
+#endif
 		// scan the root dir for "AVRAPnnn", entries are 32 bytes each
 		for (uint16_t i=0; i<512; i+=32) {
 			if (mem_cmpP(&Buff[i],PSTR("AVRAP"),5) == 0) {
 				progver = ((Buff[i+5]-'0') << 8) | ((Buff[i+6]-'0') << 4) | (Buff[i+7]-'0');
 #ifdef UART_DEBUG
-				UART_putsP(PSTR("Ver = "));
+				UART_putsP(PSTR("FileVer = "));
 				UART_puthex(progver >> 8);
 				UART_puthex(progver & 0xFF);
+				UART_newline();
 #endif
-				currver = pgm_read_word(BOOT_ADR - (10 * SPM_PAGESIZE));
 				if ((currver == 0xFFFF) || (currver < progver)) { // either there's no app or it's out of date
 					// we're going for it!
-					flash_erase(BOOT_ADR - (10 * SPM_PAGESIZE)); // erase the valid marker app (which is the ver number)
+					eeprom_update_word((uint16_t *)E2END-2, 0xFFFF);
 
 					// Now got to find the data cluster for this file entry we found
 					p16 = (uint16_t *)&Buff[i + DIR_FstClusLO];
 					firstclust = *p16;
 					lba = ((firstclust - 1) * SecPerClus) + RootDir;
-					for (fa = 0; fa < (BOOT_ADR - (11 * SPM_PAGESIZE)); fa += SPM_PAGESIZE) {
-						disk_readp(Buff, lba + fa, 0, SPM_PAGESIZE);
-						flash_erase(fa);
-						flash_write(fa, Buff);
+					for (uint16_t sect=0; sect < (BOOT_ADR/512); sect++ ) {
+						uint16_t pgoffset;
+						uint16_t faddr;
+						disk_readp(Buff, lba + sect, 0, 512);
+						faddr = sect * 512;
+						for (uint8_t page = 0; page < 512 / SPM_PAGESIZE; page++) {
+							pgoffset = page * SPM_PAGESIZE;
+							flash_erase(faddr + pgoffset);
+							flash_write(faddr + pgoffset, &Buff[pgoffset]);
+						}						
 					}						
-#ifdef qUART_DEBUG
-					for (uint16_t i=0; i<512; i++) {
-						if ((i % 16) == 0) {
-							UART_put('\r');
-							UART_put('\n');
-						}
-						UART_puthex(Buff[i]);
-						UART_put(' ');
-					}
-#endif
-					Buff[0] = progver & 0xFF;
-					Buff[1] = progver >> 8;
-					flash_write(BOOT_ADR - (10 * SPM_PAGESIZE), Buff); // write the new version number as validity marker
+					eeprom_update_word((uint16_t *)E2END-2, progver);
 					break;
 				}
 			}
 		}
 	}	
 
-	if (pgm_read_word(BOOT_ADR - (10 * SPM_PAGESIZE)) != 0xFFFF)		/* Start application if exists */
+	if (eeprom_read_word((const uint16_t *)E2END-2) != 0xFFFF)		/* Start application if exists */
 		((void(*)(void))0)();
 
 	while(1) {

@@ -19,7 +19,7 @@
     <KeepTimersRunning>true</KeepTimersRunning>
     <OverrideVtor>false</OverrideVtor>
     <OverrideVtorValue />
-    <eraseonlaunchrule>0</eraseonlaunchrule>
+    <eraseonlaunchrule>2</eraseonlaunchrule>
     <AsfVersion>3.1.3</AsfVersion>
     <avrtool>com.atmel.avrdbg.tool.jtagicemkii</avrtool>
     <avrtoolinterface>JTAG</avrtoolinterface>
@@ -95,6 +95,7 @@
         </InterfaceProperties>
       </ToolOptions>
     </com_atmel_avrdbg_tool_jtagicemkii>
+    <preserveEEPROM>True</preserveEEPROM>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <ToolchainSettings>
@@ -130,6 +131,11 @@
       <Value>F_CPU=3686400UL</Value>
     </ListValues>
   </avrgcc.compiler.symbols.DefSymbols>
+  <avrgcc.compiler.directories.IncludePaths>
+    <ListValues>
+      <Value>../uart</Value>
+    </ListValues>
+  </avrgcc.compiler.directories.IncludePaths>
   <avrgcc.compiler.optimization.level>Optimize (-O1)</avrgcc.compiler.optimization.level>
   <avrgcc.compiler.optimization.PrepareFunctionsForGarbageCollection>True</avrgcc.compiler.optimization.PrepareFunctionsForGarbageCollection>
   <avrgcc.compiler.optimization.PackStructureMembers>True</avrgcc.compiler.optimization.PackStructureMembers>
@@ -139,16 +145,16 @@
   <avrgcc.linker.libraries.Libraries>
     <ListValues>
       <Value>m</Value>
+      <Value>c</Value>
     </ListValues>
   </avrgcc.linker.libraries.Libraries>
   <avrgcc.linker.optimization.GarbageCollectUnusedSections>True</avrgcc.linker.optimization.GarbageCollectUnusedSections>
-  <avrgcc.linker.optimization.RelaxBranches>True</avrgcc.linker.optimization.RelaxBranches>
   <avrgcc.linker.memorysettings.Flash>
     <ListValues>
       <Value>.text=0x1C00</Value>
     </ListValues>
   </avrgcc.linker.memorysettings.Flash>
-  <avrgcc.linker.miscellaneous.LinkerFlags>-nostdlib</avrgcc.linker.miscellaneous.LinkerFlags>
+  <avrgcc.linker.miscellaneous.LinkerFlags>-nostdlib -Wl,--relax</avrgcc.linker.miscellaneous.LinkerFlags>
   <avrgcc.assembler.general.AssemblerFlags>-DF_CPU=3686400</avrgcc.assembler.general.AssemblerFlags>
   <avrgcc.assembler.debugging.DebugLevel>Default (-Wa,-g)</avrgcc.assembler.debugging.DebugLevel>
 </AvrGcc>
@@ -163,6 +169,10 @@
     </Compile>
     <Compile Include="mmc.c">
       <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="uart\uart.c">
+      <SubType>compile</SubType>
+      <Link>uart.c</Link>
     </Compile>
   </ItemGroup>
   <Import Project="$(AVRSTUDIO_EXE_PATH)\\Vs\\Compiler.targets" />
