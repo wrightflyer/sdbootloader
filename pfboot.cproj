@@ -5,7 +5,7 @@
     <ProjectVersion>6.0</ProjectVersion>
     <ToolchainName>com.Atmel.AVRGCC8</ToolchainName>
     <ProjectGuid>{f1f5862b-51bb-47de-839f-8cfed2e4f74d}</ProjectGuid>
-    <avrdevice>ATmega16</avrdevice>
+    <avrdevice>ATmega32</avrdevice>
     <avrdeviceseries>none</avrdeviceseries>
     <OutputType>Executable</OutputType>
     <Language>C</Language>
@@ -127,7 +127,7 @@
   <avrgcc.compiler.general.ChangeDefaultBitFieldUnsigned>True</avrgcc.compiler.general.ChangeDefaultBitFieldUnsigned>
   <avrgcc.compiler.symbols.DefSymbols>
     <ListValues>
-      <Value>BOOT_ADR=0x3800</Value>
+      <Value>BOOT_ADR=0x7000</Value>
       <Value>F_CPU=3686400UL</Value>
       <Value>CODE_LEN=BOOT_ADR-2</Value>
     </ListValues>
@@ -137,7 +137,7 @@
       <Value>../uart</Value>
     </ListValues>
   </avrgcc.compiler.directories.IncludePaths>
-  <avrgcc.compiler.optimization.level>Optimize (-O1)</avrgcc.compiler.optimization.level>
+  <avrgcc.compiler.optimization.level>Optimize for size (-Os)</avrgcc.compiler.optimization.level>
   <avrgcc.compiler.optimization.PrepareFunctionsForGarbageCollection>True</avrgcc.compiler.optimization.PrepareFunctionsForGarbageCollection>
   <avrgcc.compiler.optimization.PackStructureMembers>True</avrgcc.compiler.optimization.PackStructureMembers>
   <avrgcc.compiler.optimization.AllocateBytesNeededForEnum>True</avrgcc.compiler.optimization.AllocateBytesNeededForEnum>
@@ -152,10 +152,10 @@
   <avrgcc.linker.optimization.GarbageCollectUnusedSections>True</avrgcc.linker.optimization.GarbageCollectUnusedSections>
   <avrgcc.linker.memorysettings.Flash>
     <ListValues>
-      <Value>.text=0x1C00</Value>
+      <Value>.text=0x3800</Value>
     </ListValues>
   </avrgcc.linker.memorysettings.Flash>
-  <avrgcc.linker.miscellaneous.LinkerFlags>-nostartfiles -Wl,-relax</avrgcc.linker.miscellaneous.LinkerFlags>
+  <avrgcc.linker.miscellaneous.LinkerFlags>-nostartfiles </avrgcc.linker.miscellaneous.LinkerFlags>
   <avrgcc.assembler.general.AssemblerFlags>-DF_CPU=3686400</avrgcc.assembler.general.AssemblerFlags>
   <avrgcc.assembler.debugging.DebugLevel>Default (-Wa,-g)</avrgcc.assembler.debugging.DebugLevel>
 </AvrGcc>

@@ -15,7 +15,7 @@
 / This is a stand-alone MMC/SD boot loader for megaAVRs. It requires a 4KB
 / boot section for code, four GPIO pins for MMC/SD as shown in sch.jpg and
 / nothing else. To port the boot loader into your project, follow the
-/ instruction described below.
+/ instruction sdescribed below.
 /
 / 1. Setup the hardware. Attach a memory card socket to the any GPIO port
 /    where you like. Select boot size at least 4KB for the boot loader with
@@ -41,11 +41,13 @@
 #include <avr/eeprom.h>
 #include <util/delay.h>
 #include <string.h>
+#include <stdlib.h>
 #include "integer.h"
 #include "diskio.h"
 
 #define CRC_FLASH
-//#define UART_DEBUG
+#define CLUSTER_SUPPORT
+#define UART_DEBUG
 #ifdef UART_DEBUG
 	#include "uart.h"
 #endif
@@ -171,6 +173,9 @@ __attribute__((section(".init3"))) int main(void) {
 	uint16_t BytesPerSec, RsvdSecCnt, BPBSec, filever, flashver;
 	uint32_t FATSz;
 	uint32_t RootDir, lba, firstclust;
+#ifdef CLUSTER_SUPPORT	
+	uint32_t thisclust;
+#endif	
 	uint8_t fat_offset;
 
 	DDRD = 0xFF;
@@ -237,25 +242,45 @@ __attribute__((section(".init3"))) int main(void) {
 					}
 					//lba = ((firstclust - fat_offset) * SecPerClus) + RootDir;
 					// break that down to debug..
-#ifdef UART_DEBUG					
-					UART_puthex16((uint16_t)firstclust);
-					UART_put(' ');
-					UART_puthex(fat_offset);
-					UART_newline();
-#endif					
 					lba = firstclust - fat_offset;
 					lba *= SecPerClus;
 					lba += RootDir;
-					for (uint16_t sect=0; sect < (BOOT_ADR/512); sect++ ) {
-						uint16_t pgoffset;
-						uint16_t faddr;
+					uint16_t pgoffset;
+					uint16_t faddr;
+#ifdef CLUSTER_SUPPORT					
+					uint8_t sec_count = SecPerClus;
+					thisclust = firstclust;
+#endif					
+					for (uint16_t sect=0; sect < (BOOT_ADR/512); sect++) {
+#ifdef CLUSTER_SUPPORT
+						disk_read(lba + (sect % SecPerClus));
+#else
 						disk_read(lba + sect);
+#endif
 						faddr = sect * 512;
 						for (uint8_t page = 0; page < 512 / SPM_PAGESIZE; page++) {
 							pgoffset = page * SPM_PAGESIZE;
 							flash_erase(faddr + pgoffset);
 							flash_write(faddr + pgoffset, &Buff[pgoffset]);
 						}
+#ifdef CLUSTER_SUPPORT						
+						sec_count--;
+						if (!sec_count) {
+							// used all the sectors in a cluster so time to go hunting
+							ldiv_t fat_pos;
+							fat_pos = ldiv(thisclust, (fat_offset ==1) ? 256 : 128);
+							UART_puthex16((uint16_t)fat_pos.quot);
+							UART_put(' ');
+							UART_puthex16((uint16_t)fat_pos.rem);
+							fat_pos.quot += BPBSec + RsvdSecCnt;
+							disk_read(fat_pos.quot); // get the FAT sector that 'thisclust' is contained in 
+							p16 = (uint16_t *)&Buff[fat_pos.rem * 2];
+							lba = *p16;
+							lba -= fat_offset;
+							lba *= SecPerClus;
+							lba += RootDir;
+						}
+#endif						
 					}
 					if (crc_app_ok()) {
 						eeprom_update_word((uint16_t *)E2END - 1, filever);
