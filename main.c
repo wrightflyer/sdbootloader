@@ -15,7 +15,7 @@
 / This is a stand-alone MMC/SD boot loader for megaAVRs. It requires a 4KB
 / boot section for code, four GPIO pins for MMC/SD as shown in sch.jpg and
 / nothing else. To port the boot loader into your project, follow the
-/ instruction sdescribed below.
+/ instruction sdescribed below. 
 /
 / 1. Setup the hardware. Attach a memory card socket to the any GPIO port
 /    where you like. Select boot size at least 4KB for the boot loader with
