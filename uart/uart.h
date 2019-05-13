@@ -10,7 +10,7 @@
 void UART_init(void);
 // The classic Tx one character routine
 void UART_put(uint8_t c);
-// classic Tx a C-string routine
+// classic Tx a C-string routine (string in PROGMEM)
 void UART_puts(const char * str);
 // this expect the first parameter to be a string in dlash (that is PSTR())
 // and then the second to be a value to print out in hex. typically used in

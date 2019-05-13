@@ -12,13 +12,13 @@
 
 int main(void)
 {
-	UART_init();
-	UART_putsP(PSTR("App at "), 0);
-	DDRD = 0xFF;
-	PORTD = 0x55;
+    UART_init();
+    UART_puts(PSTR("Hello from the app"));
+    DDRD = 0xFF;
+    PORTD = 0x55;
     while(1)
     {
-		PORTD ^= 0xFF;
-		_delay_ms(80);
+        PORTD ^= 0xFF;
+        _delay_ms(80);
     }
 }
