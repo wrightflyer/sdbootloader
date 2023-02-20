@@ -29,13 +29,15 @@ Note that because this bootloader has been built to fit into a very small bootlo
 
 If you look at configure.h there are a number of #define's that can be used to switch on/off various features in the build. A comment there describes which are on and which are off by default. With default choices the code is well under 2K so will fit into the BLS of a mega16 (max 2K). Other options can be switched on if a larger BLS is available. As an example these are the build sizes for an ATmega32:
 
-`All options enabled:   2596 bytes (too big for 2K!)
+```
+All options enabled:   2596 bytes (too big for 2K!)
 -CLUSTER_SUPPORT:      2154 bytes (442 bytes)
 -FAT32_SUPPORT:        2042 bytes (112 bytes)
 -UART_DEBUG:           1668 bytes (374 bytes)
 -FLOOD_RAM:            1652 bytes (16 bytes)
 -ROOT_MULTISEC         1502 bytes (150 bytes)
--CRC_FLASH:            1406 bytes (96 bytes)`
+-CRC_FLASH:            1406 bytes (96 bytes)
+```
 
 **CLUSTER_SUPPORT** allows the AVRAPnnn.BIN file to span more than one cluster. As clusters are typically 32KB you only need this if the app images you are programming are likely to be >32KB (or whatever the cluster size is). As such you probably don't need this option on and can save a massive 442 bytes by turning it off.
 
